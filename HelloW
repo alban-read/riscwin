@@ -123,7 +123,7 @@ $label  ADD     $reg,$reg,#$by
 
         MACRO
 $label  MULTIPLY $rc, $ra, $rb
-$label  MUL     $rc, $rb, $ra ; sexy 2u version with regs in the right order
+$label  MUL     $rc, $rb, $ra
         MEND
 
 
@@ -131,10 +131,6 @@ $label  MUL     $rc, $rb, $ra ; sexy 2u version with regs in the right order
 
         MACRO
 $label  Pull    $reglist, $cond, $hat
-        ; loop to find "-" or "," in reglist - if
-        ; not we can optimise a single-register
-        ; load to be faster on SA, ARM9.
-        ; fails (loudly) if RLIST directive in use
         LCLS   temps
         LCLL   onereg
 temps   SETS   "$reglist"
@@ -275,10 +271,14 @@ mask    DCD  2_11100000110001
         ALIGN 256
 
 
-sprname DCB  "offscn", 0, 0
-hello   DCB  "Hello", 0
+
+hello   DCB  "Hello, the quick brown fox .. "
+        DCB  "Jumped over the Lazy Dog .. "
+        DCB  "This is the age of the train!"
+        DCB  " A Snafu.", 0
         ALIGN
-clkit   DCB  "Clicked on it", 0
+clickit
+        DCB  "Clicked ", 0
         ALIGN
 bye     DCB  "Bye",0
         ALIGN
@@ -321,11 +321,13 @@ minxy
 minx    DCD     0
 miny    DCD     0
 
+
+
         ALIGN   256
 
-; spritea
+; sprite control
 ;
-
+sprname DCB  "offscn", 0, 0
 sprtptr
         DCD     0
 sprx    DCD     800
@@ -435,6 +437,42 @@ updt_rxy   EQU    updt + 40
 pollbase  EQU    updt - 512
 poll      EQU    pollbase
 
+; -- Colours
+
+cpaper    EQU  &FFFFCC
+cpen      EQU  &FF3333
+ccur1     EQU  &8000FF
+ccur2     EQU  &00660F
+
+cbase     EQU    pollbase - 512
+colours   EQU    cbase
+fgcol     EQU    cbase + 0
+bgcol     EQU    cbase + 4
+c1col     EQU    cbase + 8
+c2col     EQU    cbase + 12
+
+; -- Text
+
+textsz    EQU    8192
+texttop   EQU    cbase - 512
+cursor    EQU    texttop
+curx      EQU    texttop
+cury      EQU    texttop + 4
+; ..
+textbase  EQU    texttop - textsz
+
+
+
+; -- Keyboard input
+
+kbdbase   EQU    textbase - 512
+khdl      EQU    kbdbase + 0
+kiconhdl  EQU    kbdbase + 4
+kxcaret   EQU    kbdbase + 8
+kycaret   EQU    kbdbase + 12
+kcgf      EQU    kbdbase + 16
+kcidx     EQU    kbdbase + 20
+kcode     EQU    kbdbase + 24
 
 
 ; program code
@@ -442,8 +480,194 @@ poll      EQU    pollbase
         AREA    |code|, CODE,  READONLY
 
         CODE32
-        ALIGN   256
+        ALIGN 1024
 
+
+; key pressed
+
+
+leftArrow
+       Push   "r0-r1, lr"
+       LDR   r1, =cursor
+       LDR   r0, [r1]
+       CMP   r0, #0
+       SUBGT r0, r0, #1
+       STRGT r0, [r1]
+       Pull  "r0-r1, pc"
+
+rightArrow
+       Push   "r0-r1, lr"
+       LDR   r1, =cursor
+       LDR   r0, [r1]
+       CMP   r0, #88
+       ADDLT r0, r0, #1
+       STRLT r0, [r1]
+       Pull  "r0-r1, pc"
+
+cpyKeyPress
+       Push   "r0-r9, lr"
+       LDR    r9, =poll
+       LDR    r8, =kbdbase
+       LDMIA  r9, {r0,r1,r2,r3,r4,r5,r6,r7}
+       STMIA  r8, {r0,r1,r2,r3,r4,r5,r6,r7}
+       Pull   "r0-r9, pc"
+
+; assign default colours to fg, bg c1, c2.
+initTextCols
+       Push   "r0-r4, lr"
+       LDR   r4, =colours
+       LDR   r0, =cpaper
+       LDR   r1, =cpen
+       LDR   r2, =ccur1
+       LDR   r3, =ccur2
+       STMIA r4, {r0,r1,r2,r3}
+       Pull  "r0-r4, pc"
+
+; set fg and bg graphics colours
+setFgBgCols
+       Push   "r0-r4, lr"
+       LDR     r4, =colours
+       LDR     r1, [r4, #0]
+       MOV     r0, #0
+       SWI     OS_SetColour
+
+       LDR     r1, [r4, #4]
+       MOV     r0, #16
+       SWI     OS_SetColour
+       Pull  "r0-r4, pc"
+
+setStdCurCol
+       Push   "r0-r2, lr"
+       LDR     r2, =colours
+       LDR     r1, [r2, #8]
+       MOV     r0, #0
+       Pull  "r0-r2, pc"
+
+setCpyCurCol
+       Push   "r0-r2, lr"
+       LDR     r2, =colours
+       LDR     r1, [r2, #12]
+       MOV     r0, #0
+       Pull  "r0-r2, pc"
+
+
+homeCursor
+       Push   "r0-r1, lr"
+       LDR   r1, =cursor
+       MOV   r0, #8
+       STR   r0, [r1]
+       STR   r0, [r1, #4]
+       Pull  "r0-r1, pc"
+
+displayCursor
+
+       Push   "r0-r6, lr"
+       BL    setCpyCurCol
+       LDR   r2, =cursor
+       LDMIA r2, {r0, r1}
+
+       MOV   r3, #1000
+       MOV   r5, #32
+       MUL   r4, r1, r5
+       SUB   r1, r3, r4
+
+       MOV   r3, #0
+       MOV   r5, #16
+       MUL   r3, r0, r5
+       MOV   r0, r3
+
+       ADD   r3, r0, #8
+       SUB   r4, r1, #16
+       ADD   r5, r3, #16
+       ADD   r6, r4, #16
+       BL    doRect
+       BL    setFgBgCols
+       Pull  "r0-r6, pc"
+
+blankText ROUT
+
+       Push   "r0-r5, lr"
+       LDR    r4, =textbase
+       LDR    r5, =textsz
+       LDR    r0, =&20202023
+       MOV    r1, r0
+       MOV    r2, r0
+       MOV    r3, r0
+10     STMIA  r4!, {r0,r1,r2,r3}
+       DEC    r5, 16
+       CMP    r5, #0
+       BGT    %10
+       Pull   "r0-r5, pc"
+
+displayAblePress ; in r0
+
+       Push   "r1-r8, lr"
+       LDR    r7, =texttop
+       LDR    r8, =cursor
+       MOV    r6, #88
+       LDMIA  r8, {r3, r4}
+       ADD    r4, r4, #1
+       MUL    r1, r4, r6   ; y * 88
+       SUB    r1, r1, r3   ; + x
+       SUB    r7, r7, r1   ; from top
+       STRB   r0, [r7]
+       BL     rightArrow   ; advance
+       Pull   "r1-r8, pc"
+
+
+delKeyPress
+       Push   "r0-r8, lr"
+       MOV    r0, #&20
+       LDR    r7, =texttop
+       LDR    r8, =cursor
+       MOV    r6, #88
+       LDMIA  r8, {r3, r4}
+       ADD    r4, r4, #1
+       MUL    r1, r4, r6   ; y * 88
+       SUB    r1, r1, r3   ; + x
+       SUB    r7, r7, r1   ; from top
+       STRB   r0, [r7]
+       BL     leftArrow    ; backspace
+       Pull   "r0-r8, pc"
+
+
+displayLines ROUT
+
+       Push   "r0-r8, lr"
+       LDR    r7, =texttop
+
+       MOV    r6, #30
+       MOV    r5, #1000 ; line 0 Top of sprite
+10     MOV    r1, #10
+       MOV    r2, r5
+       MOV    r0, #180
+       SWI    OS_Plot   ; move to start of line
+       MOV    r0, #5
+       SWI    OS_WriteC ; at graphics point
+
+
+
+       SUB    r0, r7, #88
+       MOV    r1, #88
+       SWI    OS_WriteN
+
+       SUB    r6, r6, #1
+       SUB    r5, r5, #32
+       SUB    r7, r7, #88 ; next line
+       CMP    r6, #0
+       BNE    %10
+       Pull   "r0-r8, pc"
+
+refreshWindow
+       Push   "r0-r4, lr"
+       ADDR   r0, hwnd
+       LDR    r0, [r0]
+       MOV    r1, #0
+       MOV    r2, #0
+       MOV    r3, #1536
+       MOV    r4, #1024
+       SWI    Wimp_ForceRedraw
+       Pull   "r0-r4, pc"
 
 
 doLine ; r3, r4 to r5, r6
@@ -459,102 +683,116 @@ doLine ; r3, r4 to r5, r6
        SWI    OS_Plot
        Pull   "r0-r2, pc"
 
+
+doRect ; r3, r4 to r5, r6
+
+       Push   "r0-r2, lr"
+       MOV    r1, r3
+       MOV    r2, r4
+       MOV    r0, #4
+       SWI    OS_Plot
+       MOV    r1, r5
+       MOV    r2, r6
+       MOV    r0, #&65
+       SWI    OS_Plot
+       Pull   "r0-r2, pc"
+
 toSprite
 
-       Push  "r0-r4, lr"
-       ADDR  r4, sprdir
-       LDR   r0, [r4]
-       CMP   r0, #1
-       Pull "r0-r4, pc", EQ
+       Push   "r0-r4, lr"
+       ADDR   r4, sprdir
+       LDR    r0, [r4]
+       CMP    r0, #1
+       Pull   "r0-r4, pc", EQ
 
-       MOV   r0, #1
-       STR   r0, [r4]
-       LDR  r1, =sbase
+       MOV    r0, #1
+       STR    r0, [r4]
+       LDR    r1, =sbase
 
-       LDR   r0, =316
-       ADDR  r2, sprname
-       MOV   r3, #0
+       LDR    r0, =316
+       ADDR   r2, sprname
+       MOV    r3, #0
 
-       SWI   OS_SpriteOp
-       LDR   r4, =sprsav
-       STR   r0, [r4, #4]!
-       STR   r1, [r4, #4]!
-       STR   r2, [r4, #4]!
-       STR   r3, [r4, #4]!
-       Pull "r0-r4, pc"
+       SWI    OS_SpriteOp
+       LDR    r4, =sprsav
+       STR    r0, [r4, #4]!
+       STR    r1, [r4, #4]!
+       STR    r2, [r4, #4]!
+       STR    r3, [r4, #4]!
+       Pull   "r0-r4, pc"
 
 toScreen
 
-       Push  "r0-r4, lr"
-       ADDR  r4, sprdir
-       LDR   r0, [r4]
-       CMP   r0, #0
-       Pull  "r0-r4, pc", EQ
+       Push   "r0-r4, lr"
+       ADDR   r4, sprdir
+       LDR    r0, [r4]
+       CMP    r0, #0
+       Pull   "r0-r4, pc", EQ
 
-       MOV   r0, #0
-       STR   r0, [r4]
+       MOV    r0, #0
+       STR    r0, [r4]
 
-       LDR  r1, =sbase
-       LDR  r4, =sprsav
+       LDR    r1, =sbase
+       LDR    r4, =sprsav
 
-       LDR   r0, [r4, #4]!
-       LDR   r1, [r4, #4]!
-       LDR   r2, [r4, #4]!
-       LDR   r3, [r4, #4]!
-       SWI   OS_SpriteOp
-       Pull  "r0-r4,pc"
+       LDR    r0, [r4, #4]!
+       LDR    r1, [r4, #4]!
+       LDR    r2, [r4, #4]!
+       LDR    r3, [r4, #4]!
+       SWI    OS_SpriteOp
+       Pull   "r0-r4,pc"
 
 makeFromScreen
 
-       Push  "r0-r8,lr"
-       LDR   r0, =256+16
-       LDR   r1, =sbase
-       ADDR  r2, sprname
-       MOV   r3, #0
-       MOV   r4, #0
-       MOV   r5, #0
-       LDR   r6, =1540
-       LDR   r7, =1050
-       SWI   OS_SpriteOp
-       ADDR  r8, sprtptr
-       STR   r2, [r8]
-       Pull "r0-r8, pc"
+       Push   "r0-r8,lr"
+       LDR    r0, =256+16
+       LDR    r1, =sbase
+       ADDR   r2, sprname
+       MOV    r3, #0
+       MOV    r4, #0
+       MOV    r5, #0
+       LDR    r6, =1540
+       LDR    r7, =1050
+       SWI    OS_SpriteOp
+       ADDR   r8, sprtptr
+       STR    r2, [r8]
+       Pull   "r0-r8, pc"
 
 initSprites
 
-       Push  "r0-r5, lr"
-       LDR   r4, =sbase
-       LDR   r0, =sasize
-       STR   r0, [r4]
-       MOV   r0, #0
-       STR   r0, [r4, #4]!
-       MOV   r0, #16
-       STR   r0, [r4, #4]!
-       STR   r0, [r4, #4]!
-       LDR   r1, =sbase
-       LDR   r0, =256+9
-       SWI   OS_SpriteOp
-       BL    makeFromScreen
-       Pull  "r0-r5, pc"
+       Push   "r0-r5, lr"
+       LDR    r4, =sbase
+       LDR    r0, =sasize
+       STR    r0, [r4]
+       MOV    r0, #0
+       STR    r0, [r4, #4]!
+       MOV    r0, #16
+       STR    r0, [r4, #4]!
+       STR    r0, [r4, #4]!
+       LDR    r1, =sbase
+       LDR    r0, =256+9
+       SWI    OS_SpriteOp
+       BL     makeFromScreen
+       Pull   "r0-r5, pc"
 
 plotSpriteInPoll
 
-       Push  "r0-r5, lr"
+       Push   "r0-r5, lr"
 
-       LDR   r1, =poll
-       LDR   r3, [r1,#4]
-       LDR   r4, [r1,#8]
-       ADD   r4, r4,#1
+       LDR    r1, =poll
+       LDR    r3, [r1,#4]
+       LDR    r4, [r1,#8]
+       ADD    r4, r4,#1
 
-       LDR   r0, =512+34
-       MOV   r1, #0
-       LDR   r1, =sbase
-       ADDR  r2, sprtptr
-       LDR   r2, [r2]
+       LDR    r0, =512+34
+       MOV    r1, #0
+       LDR    r1, =sbase
+       ADDR   r2, sprtptr
+       LDR    r2, [r2]
 
-       MOV   r5, #0
-       SWI   OS_SpriteOp
-       Pull  "r0-r5, pc"
+       MOV    r5, #0
+       SWI    OS_SpriteOp
+       Pull   "r0-r5, pc"
 
 
 ; -------------------------------------------------
@@ -570,36 +808,17 @@ plotSpriteInPoll
         LDR     r0, =sp0
         MOV     r13, r0
 
+        BL      initTextCols
+        BL      homeCursor
+        BL      blankText
         BL      initSprites
 
         BL      toSprite
-
-        MOV     r1, #0        ;
-        ADDL    r1, &FAFAFA   ; white-ish
-        MOV     r0, #16       ; graphics bg
-        SWI     OS_SetColour
-
-        MOV     r1, #0        ;
-        ADDL    r1, &FF000F   ;
-        MOV     r0, #0        ; graphics fg
-        SWI     OS_SetColour
-
+        BL      setFgBgCols
 
         MOV     r0, #16       ; clg on sprite
         SWI     OS_WriteC
-
-        MOV     r1, #1200
-        MOV     r2, #10
-        MOV     r0, #180
-        SWI     OS_Plot
-
-        MOV     r0, #5
-        SWI     OS_WriteC
-
-        ADDR    r0, hello
-        SWI     OS_Write0
-        SWI     OS_NewLine
-
+        BL      displayCursor
         BL      toScreen
 
         MOV     r0, #1
@@ -710,8 +929,8 @@ amesg
         BL      ptrenter
         B       qquit
 
-06      CMP     r0, #6               ; mouse click
-        BNE     %18
+06      CMP     r0, #6               ; handle mouse click
+        BNE     %07
 
         LDR     r2, =where           ; track where clicked.
         LDR     r0, [r1,#wherex]     ; x
@@ -737,10 +956,13 @@ amesg
 
         BL      toSprite
 
-        MOV     r1, #0        ;
-        ADDL    r1, &FFF000   ;
-        MOV     r0, #0        ; graphics fg
-        SWI     OS_SetColour
+        BL      setFgBgCols
+
+        MOV     r0, #16       ; clg on sprite
+        SWI     OS_WriteC
+
+        BL      displayLines
+        BL      displayCursor
 
         LDR     r0, =where
         LDR     r1, [r0, #wherex]
@@ -758,7 +980,7 @@ amesg
         MOV     r0, #5
         SWI     OS_WriteC
 
-        ADDR    r0, hello
+        ADDR    r0, clickit
         SWI     OS_Write0
 
         LDR     r3, =where           ; display where clicked.
@@ -792,22 +1014,78 @@ amesg
 
 
         BL      toScreen
+        BL      refreshWindow
+
+        B       qquit
+
+
+07      CMP     r0, #7
+        BNE     %08
+
+        B       qquit
+
+
+rarrow  EQU     &18D
+larrow  EQU     &18C
+
+
+08      CMP     r0, #8
+        BNE     %018
+        BL      cpyKeyPress
+
+        LDR     r0, [r1, #24]
+        CMP     r0, #&1B
+        BEQ     quit
+
+        CMP     r0, #&20
+        BLT     %081
+        CMP     r0, #&7E
+        BGT     %081
+
+        BL      displayAblePress
+        B       %082
+
+
+081     ; special keys
+        LDR     r2, =larrow
+        CMP     r0, r2   ; left
+        BLEQ    leftArrow
+
+        LDR     r2, =rarrow
+        CMP     r0, r2   ; right
+        BLEQ    rightArrow
+
+        CMP     r0, #127 ; DELETE
+        BLEQ    delKeyPress
+
+        CMP     r0, #08  ; BS
+        BLEQ    delKeyPress
+
+        CMP     r0, #12
+        BLEQ    homeCursor
+        BLEQ    blankText
 
 
 
 
+082
+        ; display on screen
+        BL      toSprite
+        BL      setFgBgCols
 
-        ; update window
-        ADDR    r0, hwnd
-        LDR     r0, [r0]
-        MOV     r1, #0
-        MOV     r2, #0
-        MOV     r3, #1536
-        MOV     r4, #1024
-        SWI     Wimp_ForceRedraw
+        MOV     r0, #16       ; clg on sprite
+        SWI     OS_WriteC
+
+        BL      displayLines
+        BL      displayCursor
+        BL      toScreen
+        BL      refreshWindow
+
 
 
         B       qquit
+
+
 
 
 018     CMP     r0, #18       ; user message
@@ -845,7 +1123,7 @@ quit
 Redrawing       ROUT
 OnRedraw
 
-        ; clip graphics to our window.
+
         Push    "r0-r2"
 
         LDR     r1, =poll
@@ -869,8 +1147,8 @@ nextrect
         CMP     r0, #0
         Pull    "r0-r2", EQ
         BEQ     qquit
-       ; MOV     r0, #&13
-       ; SWI     OS_Byte
+        MOV     r0, #&13
+        SWI     OS_Byte
         BL      plotSpriteInPoll
 
         INC     r2
@@ -941,7 +1219,7 @@ ptrleave
 preq
         MOV     r15, r14
 
-
+        ALIGN   1024
 
         END
 
