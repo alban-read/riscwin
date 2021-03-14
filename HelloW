@@ -439,10 +439,10 @@ poll      EQU    pollbase
 
 ; -- Colours
 
-cpaper    EQU  &FFFFCC
+cpaper    EQU  &00FFFF
 cpen      EQU  &FF3333
-ccur1     EQU  &8000FF
-ccur2     EQU  &00660F
+ccur1     EQU  &FFFF00
+ccur2     EQU  &FFFF00
 
 cbase     EQU    pollbase - 512
 colours   EQU    cbase
@@ -474,6 +474,10 @@ kcgf      EQU    kbdbase + 16
 kcidx     EQU    kbdbase + 20
 kcode     EQU    kbdbase + 24
 
+; insert/overwrite
+insovr    EQU    kbdbase + 32
+
+
 
 ; program code
 
@@ -485,6 +489,19 @@ kcode     EQU    kbdbase + 24
 
 ; key pressed
 
+colns  EQU  88
+rowns  EQU  30
+
+enterKey
+       Push   "r0-r1, lr"
+       LDR   r1, =cursor
+       LDR   r0, [r1, #4]
+       CMP   r0, #rowns
+       ADDLT r0, r0, #1
+       STRLT r0, [r1,#4]
+       MOVLT r0, #0
+       STRLT r0, [r1]
+       Pull  "r0-r1, pc"
 
 leftArrow
        Push   "r0-r1, lr"
@@ -499,9 +516,27 @@ rightArrow
        Push   "r0-r1, lr"
        LDR   r1, =cursor
        LDR   r0, [r1]
-       CMP   r0, #88
+       CMP   r0, #colns
        ADDLT r0, r0, #1
        STRLT r0, [r1]
+       Pull  "r0-r1, pc"
+
+downArrow
+       Push   "r0-r1, lr"
+       LDR   r1, =cursor
+       LDR   r0, [r1, #4]
+       CMP   r0, #rowns
+       ADDLT r0, r0, #1
+       STRLT r0, [r1,#4]
+       Pull  "r0-r1, pc"
+
+upArrow
+       Push   "r0-r1, lr"
+       LDR   r1, =cursor
+       LDR   r0, [r1,#4]
+       CMP   r0, #0
+       SUBGT r0, r0, #1
+       STRGT r0, [r1,#4]
        Pull  "r0-r1, pc"
 
 cpyKeyPress
@@ -521,6 +556,11 @@ initTextCols
        LDR   r2, =ccur1
        LDR   r3, =ccur2
        STMIA r4, {r0,r1,r2,r3}
+
+       ; set insert mode
+       MOV   r0, #1
+       LDR   r2, =insovr
+       STR   r0, [r2]
        Pull  "r0-r4, pc"
 
 ; set fg and bg graphics colours
@@ -550,11 +590,10 @@ setCpyCurCol
        MOV     r0, #0
        Pull  "r0-r2, pc"
 
-
 homeCursor
        Push   "r0-r1, lr"
        LDR   r1, =cursor
-       MOV   r0, #8
+       MOV   r0, #0
        STR   r0, [r1]
        STR   r0, [r1, #4]
        Pull  "r0-r1, pc"
@@ -589,7 +628,7 @@ blankText ROUT
        Push   "r0-r5, lr"
        LDR    r4, =textbase
        LDR    r5, =textsz
-       LDR    r0, =&20202023
+       LDR    r0, =&20202020
        MOV    r1, r0
        MOV    r2, r0
        MOV    r3, r0
@@ -599,36 +638,82 @@ blankText ROUT
        BGT    %10
        Pull   "r0-r5, pc"
 
-displayAblePress ; in r0
+displayAblePress ROUT  ; in r0
 
        Push   "r1-r8, lr"
        LDR    r7, =texttop
        LDR    r8, =cursor
-       MOV    r6, #88
+       MOV    r6, #colns
+
        LDMIA  r8, {r3, r4}
        ADD    r4, r4, #1
-       MUL    r1, r4, r6   ; y * 88
+       MUL    r1, r4, r6   ; y * colns
        SUB    r1, r1, r3   ; + x
        SUB    r7, r7, r1   ; from top
-       STRB   r0, [r7]
+       LDR    r5, =insovr
+       LDR    r2, [r5]
+       CMP    r2, #0
+       BEQ    %01
+
+       ; move text in line and insert
+
+       SUB    r5, r6, r3 ; colns - x
+       CMP    r5, #0
+       BLEQ   %01
+
+       ADD    r8, r7, r5 ; end of row
+       SUB    r8, r8, #2
+02     SUB    r5, r5, #1 ; -1
+       LDRB   r1, [r8]
+       STRB   r1, [r8, #1]
+       SUB    r8, r8, #1
+       CMP    r5, #0
+       BNE    %02
+
+01     STRB   r0, [r7]
        BL     rightArrow   ; advance
        Pull   "r1-r8, pc"
 
 
-delKeyPress
+; bug at end of line in ins mode
+delKeyPress   ROUT
+
        Push   "r0-r8, lr"
        MOV    r0, #&20
        LDR    r7, =texttop
        LDR    r8, =cursor
-       MOV    r6, #88
+       MOV    r6, #colns
        LDMIA  r8, {r3, r4}
        ADD    r4, r4, #1
-       MUL    r1, r4, r6   ; y * 88
+       MUL    r1, r4, r6   ; y * colns
        SUB    r1, r1, r3   ; + x
        SUB    r7, r7, r1   ; from top
-       STRB   r0, [r7]
-       BL     leftArrow    ; backspace
+
+       SUB    r5, r6, r3   ; colns - x
+       CMP    r5, #0
+       BLEQ   %01
+       CMP    r5, r6
+       ADDEQ  r6, r7, r5
+       MOVEQ  r0, #&23
+       STREQB r0, [r6]
+
+       MOV    r8, r7
+       SUB    r8, r8, #1
+02     SUB    r5, r5, #1   ; -1
+       LDRB   r1, [r8, #1]
+       STRB   r1, [r8]
+       ADD    r8, r8, #1
+       STRB   r0, [r6]
+       CMP    r5, #0
+       BNE    %02
+       BL     leftArrow
+
        Pull   "r0-r8, pc"
+
+01     STRB   r0, [r7]
+
+       BL     leftArrow    ; backspace
+03     Pull   "r0-r8, pc"
 
 
 displayLines ROUT
@@ -636,7 +721,7 @@ displayLines ROUT
        Push   "r0-r8, lr"
        LDR    r7, =texttop
 
-       MOV    r6, #30
+       MOV    r6, #rowns +1
        MOV    r5, #1000 ; line 0 Top of sprite
 10     MOV    r1, #10
        MOV    r2, r5
@@ -645,15 +730,13 @@ displayLines ROUT
        MOV    r0, #5
        SWI    OS_WriteC ; at graphics point
 
-
-
-       SUB    r0, r7, #88
-       MOV    r1, #88
+       SUB    r0, r7, #colns
+       MOV    r1, #colns
        SWI    OS_WriteN
 
        SUB    r6, r6, #1
        SUB    r5, r5, #32
-       SUB    r7, r7, #88 ; next line
+       SUB    r7, r7, #colns ; next line
        CMP    r6, #0
        BNE    %10
        Pull   "r0-r8, pc"
@@ -685,7 +768,6 @@ doLine ; r3, r4 to r5, r6
 
 
 doRect ; r3, r4 to r5, r6
-
        Push   "r0-r2, lr"
        MOV    r1, r3
        MOV    r2, r4
@@ -722,7 +804,6 @@ toSprite
        Pull   "r0-r4, pc"
 
 toScreen
-
        Push   "r0-r4, lr"
        ADDR   r4, sprdir
        LDR    r0, [r4]
@@ -1027,6 +1108,8 @@ amesg
 
 rarrow  EQU     &18D
 larrow  EQU     &18C
+uarrow  EQU     &18F
+darrow  EQU     &18E
 
 
 08      CMP     r0, #8
@@ -1055,6 +1138,17 @@ larrow  EQU     &18C
         CMP     r0, r2   ; right
         BLEQ    rightArrow
 
+        LDR     r2, =darrow
+        CMP     r0, r2
+        BLEQ    downArrow
+
+        LDR     r2, =uarrow
+        CMP     r0, r2
+        BLEQ    upArrow
+
+        CMP     r0, #13
+        BLEQ    enterKey
+
         CMP     r0, #127 ; DELETE
         BLEQ    delKeyPress
 
@@ -1064,8 +1158,6 @@ larrow  EQU     &18C
         CMP     r0, #12
         BLEQ    homeCursor
         BLEQ    blankText
-
-
 
 
 082
