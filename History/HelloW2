@@ -1,0 +1,1009 @@
+;    s.HelloW
+;
+
+
+; headers
+
+        GET     ^.AsmHdrs.h.SWINames
+
+; macro
+
+
+
+        MACRO
+$label  ADDL    $reg, $var
+        LCLA    count
+        LCLA    varcopy
+        LCLA    value
+varcopy SETA    $var
+count   SETA    0
+        WHILE   varcopy > 0
+      [ varcopy :AND: 3 = 0
+varcopy SETA    varcopy :SHR: 2
+count   SETA    count + 2
+      |
+value   SETA    (varcopy :AND: 255) :SHL: (count)
+        ADD     $reg, $reg, #&$value
+varcopy SETA    varcopy :SHR: 8
+count   SETA    count + 8
+      ]
+        WEND
+        MEND
+
+
+        MACRO
+$label  ADDR    $reg, $dest, $cond
+$label  ADR$cond.L $reg, $dest
+        MEND
+
+                GBLA    addr_verbose
+addr_verbose    SETA    0
+        MACRO
+$label  addr    $reg, $object, $cc
+        LCLA    value
+value   SETA    .-$object+8
+        Immediate &$value
+ [ immediate
+$label  ADR$cc  $reg, $object
+  [ addr_verbose :AND: 1 <> 0
+ ! 0,"addr saved a word"
+  ]
+ |
+$label  ADR$cc.L $reg, $object
+  [ addr_verbose :AND: 2 <> 0
+ ! 0,"addr didn't save a word"
+  ]
+ ]
+        MEND
+
+
+        MACRO
+$label  DEC     $reg,$by
+        [ "$by" = ""
+$label  SUB     $reg,$reg,#1
+        |
+$label  SUB     $reg,$reg,#$by
+        ]
+        MEND
+
+
+
+        MACRO
+$label  DivRem  $rc, $ra, $rb, $rtemp, $norem
+$label
+     [ NoARMVE
+        MOV     $rtemp, $rb
+        CMP     $rtemp, $ra, LSR #1
+01
+        MOVLS   $rtemp, $rtemp, LSL #1
+        CMPLS   $rtemp, $ra, LSR #1
+        BLS     %BT01
+        MOV     $rc, #0
+02
+        CMP     $ra, $rtemp
+        SUBCS   $ra, $ra, $rtemp
+        ADC     $rc, $rc, $rc
+        MOV     $rtemp, $rtemp, LSR #1
+        CMP     $rtemp, $rb
+        BCS     %BT02
+     ELIF ("$rb" :LEFT: 1) == "#"
+        MOV     $rtemp, $rb
+        UDIV    $rc, $ra, $rtemp
+      [ "$norem" == ""
+        MLS     $ra, $rtemp, $rc, $ra
+      ]
+     |
+        UDIV    $rc, $ra, $rb
+      [ "$norem" == ""
+        MLS     $ra, $rb, $rc, $ra
+      ]
+     ]
+        MEND
+
+        MACRO
+$label  Error   $errno, $errstr
+$label  ADR     R0, %FT01
+        SWI     OS_GenerateError
+01
+        &       $errno
+        =       "$errstr", 0
+        ALIGN
+        MEND
+
+
+        MACRO
+$label  INC     $reg,$by
+        [ "$by" = ""
+$label  ADD     $reg,$reg,#1
+        |
+$label  ADD     $reg,$reg,#$by
+        ]
+        MEND
+
+
+
+        MACRO
+$label  MULTIPLY $rc, $ra, $rb
+$label  MUL     $rc, $rb, $ra ; sexy 2u version with regs in the right order
+        MEND
+
+
+
+
+        MACRO
+$label  Pull    $reglist, $cond, $hat
+        ; loop to find "-" or "," in reglist - if
+        ; not we can optimise a single-register
+        ; load to be faster on SA, ARM9.
+        ; fails (loudly) if RLIST directive in use
+        LCLS   temps
+        LCLL   onereg
+temps   SETS   "$reglist"
+onereg  SETL   "$hat" = ""
+        WHILE  onereg :LAND: :LEN: temps > 0
+        [ temps :LEFT: 1 = "," :LOR: temps :LEFT: 1 = "-"
+onereg  SETL   {FALSE}
+        ]
+temps   SETS   temps :RIGHT: (:LEN: temps - 1)
+        WEND
+        [ onereg
+$label  LDR$cond $reglist, [r13], #4
+        |
+$label  LDM$cond.FD r13!, {$reglist}$hat
+        ]
+        MEND
+
+
+        MACRO
+$label  Push   $reglist, $cond
+        LCLS   temps
+        LCLL   onereg
+temps   SETS   "$reglist"
+onereg  SETL   {TRUE}
+        WHILE  onereg :LAND: :LEN: temps > 0
+        [ temps :LEFT: 1 = "," :LOR: temps :LEFT: 1 = "-"
+onereg  SETL   {FALSE}
+        ]
+temps   SETS   temps :RIGHT: (:LEN: temps - 1)
+        WEND
+        [ onereg
+$label  STR$cond $reglist, [r13, #-4]!
+        |
+$label  STM$cond.FD r13!, {$reglist}
+        ]
+        MEND
+
+
+        MACRO
+$label  Swap    $ra, $rb, $cc
+$label  EOR$cc  $ra, $ra, $rb
+        EOR$cc  $rb, $ra, $rb
+        EOR$cc  $ra, $ra, $rb
+        MEND
+
+
+
+
+; constants
+
+; window flags
+
+WF_Movable              EQU     &2
+WF_WimpRedraws          EQU     &10
+WF_Pane                 EQU     &20
+WF_Outside              EQU     &40
+WF_NoBackClose          EQU     &80
+WF_ScrollReqAR          EQU     &100
+WF_ScrollReq            EQU     &200
+WF_GCOLours             EQU     &400
+WF_NoBelow              EQU     &800
+WF_HotKeys              EQU     &1000
+WF_StayOnScreen         EQU     &2000
+WF_IgnoreR              EQU     &4000
+WF_IgnoreL              EQU     &8000
+WF_OpenQ                EQU     &10000
+WF_OnTopQ               EQU     &20000
+WF_FullSizeQ            EQU     &40000
+WF_ToggleSizeQ          EQU     &80000
+WF_InputFocusQ          EQU     &100000
+WF_ForceOnScreenQ       EQU     &200000
+WF_BackIcon             EQU     &81000000
+WF_CloseIcon            EQU     &82000000
+WF_TitleBar             EQU     &84000000
+WF_ToggleSizeIcon       EQU     &88000000
+WF_VScrollBar           EQU     &90000000
+WF_AdjSizeIcon          EQU     &a0000000
+WF_HScrollBar           EQU     &c0000000
+
+WFLAG  EQU  WF_Movable :OR:  WF_ScrollReqAR  :OR:  WF_IgnoreR   :OR:  WF_IgnoreL  :OR:  WF_BackIcon  :OR:  WF_CloseIcon  :OR:  WF_VScrollBar  :OR:  WF_AdjSizeIcon  :OR: WF_HScrollBar  :OR:  WF_ToggleSizeIcon  :OR: WF_TitleBar :OR: WF_StayOnScreen
+
+; windowblock offsets
+;
+wminx      EQU  0
+wminy      EQU  4
+wmaxx      EQU  8
+wmaxy      EQU 12
+xscrl      EQU 16
+yscrl      EQU 20
+bhind      EQU 24
+wflags     EQU 28
+tfg        EQU 32
+tbg        EQU 33
+wafg       EQU 34
+wabg       EQU 35
+sboc       EQU 36
+sbic       EQU 37
+tbgf       EQU 28
+extra      EQU 39
+waminy     EQU 40
+waminx     EQU 44
+wamaxx     EQU 48
+wamaxy     EQU 52
+tbflags    EQU 56
+wbtype     EQU 60
+sablock    EQU 64
+minw       EQU 68
+minh       EQU 70
+title      EQU 72
+numcons    EQU 84
+icon0      EQU 88
+
+; characters
+;
+
+TAB     *       9
+CR      *       13
+LF      *       10
+HSP     *       31             ; hard space
+Esc     *       27
+
+; stacks
+;
+      AREA    |stack|, DATA, READWRITE
+      ALIGN   64
+rp0   DCD     &8000 + 1024*1024*4 + 16384
+
+; literal data
+;
+        AREA    |lits|, DATA, READONLY
+        ALIGN   64
+task    DCB     "TASK"
+name    DCB      "A Wimp TASK", 0
+        DCD  0
+
+; initial literal settings used to create/open our window.
+;
+
+        ALIGN 64
+
+
+winsetting                           ; used to open window.
+wincoords
+        DCD  100, 100, 1600, 1100    ; minx, miny, maxx, maxy
+winscroll
+        DCD  0, 0                    ; scroll
+winbehind
+        DCD  -1                      ; behind
+winflags
+        DCD WFLAG                    ; &FF00C152
+wincols                              ; colours
+        DCB  7, 2, 1, 0
+        DCB  3, 1, 12, 0
+winwa                                ; work area
+        DCD  0,0,1500,1000
+
+        DCD  &3D                     ; tiflags
+        DCD  BT_ClickAR              ; wbtype
+        DCD  1                       ; sprite area 1=wimp
+        DCW  500, 500                ; min size (words)
+
+wintitle
+        DCB     "My Window",0,0,0,0,0,0
+        ALIGN
+winicons
+        DCD  0
+        SPACE 512
+        ALIGN 64
+
+
+slotmem DCD  1024*1024*8
+
+; filter wimp messages
+;
+wanted  DCB  1,2,3,4,5,6,7,8,9,10,11,12,17,18,19,0
+
+mask    DCD  2_11100000110001
+        ALIGN
+
+
+hello   DCB  "Hello", 0
+        ALIGN
+clkit   DCB  "Clicked on it", 0
+        ALIGN
+bye     DCB  "Bye",0
+        ALIGN
+ureq    DCB  "User Request message",0
+        ALIGN
+prebye  DCB  "Ready to quit?",0
+        ALIGN
+bytes   DCB  " Bytes available", 0
+        ALIGN
+m1      DCB  "Message# ", 0
+        ALIGN
+m2      DCB  " Action# ", 0
+        ALIGN
+m3      DCB  " Quit? ", 0
+        ALIGN
+m4      DCB  " Polls: ", 0
+        ALIGN
+
+
+mxpolls DCD  3200                   ; polls per call to Wimp_Poll
+
+
+minver  DCD 310                     ; required os version
+        ALIGN  64
+
+
+; variables
+;
+
+        ALIGN   16
+        AREA    |vars|, DATA, READWRITE
+
+osver   DCD     0                   ; our OS version
+thndl   DCD     0                   ; our Wimp task Handle
+ramlim  DCD     0                   ; end of our memory
+slen    DCD     160                 ; len for scratch
+scratch SPACE   160                 ; scratch
+send    DCD     0                   ; end of scratch
+
+        ALIGN   16
+
+evtcd   DCD     0                   ; event code
+
+hwnd    DCD     0
+
+poll                                ; Wimp Poll block
+                                    ; win scratch needs to be below hwnd.
+phwnd   DCD     0                   ; populated from winsettings; sometimes.
+
+winscratch                          ; used to create window and as poll block.
+        SPACE   256
+                                    ; some useful poll values
+pollwd  DCD     0                   ; poll word
+sender  DCD     0                   ; Sender handle
+fini    DCD     0                   ; finished?
+action  DCD     0                   ; poll action
+trips   DCD     0                   ; messages polled.
+
+settingsblk
+        DCD     0                   ; used for handle
+winsize
+        DCD     0                   ; min x
+        DCD     0                   ; min y
+        DCD     0                   ; max x
+        DCD     0                   ; max y
+
+        DCD     0                   ; sx
+        DCD     0                   ; sy
+
+        DCD     0                   ; r minx
+        DCD     0                   ; r miny
+        DCD     0                   ; r maxx
+        DCD     0                   ; r maxy
+
+        DCD     0                   ; whatever
+
+        ALIGN   64
+
+
+
+        ALIGN
+
+
+
+
+
+; text
+;
+
+
+xcur    DCD     2                   ; column 0..88
+ycur    DCD     2                   ; line   0..31
+zxcur   DCD     0                   ; pos in window
+zycur   DCD     0                   ; pos in window
+
+sline   DCD     0
+
+; 31 lines of 88
+;
+
+txtln00  SPACE   88
+txtln01  SPACE   88
+txtln02  SPACE   88
+txtln03  SPACE   88
+txtln04  SPACE   88
+txtln05  SPACE   88
+txtln06  SPACE   88
+txtln07  SPACE   88
+txtln08  SPACE   88
+txtln09  SPACE   88
+txtln10  SPACE   88
+txtln11  SPACE   88
+txtln12  SPACE   88
+txtln13  SPACE   88
+txtln14  SPACE   88
+txtln15  SPACE   88
+txtln16  SPACE   88
+txtln17  SPACE   88
+txtln18  SPACE   88
+txtln19  SPACE   88
+txtln20  SPACE   88
+txtln21  SPACE   88
+txtln22  SPACE   88
+txtln23  SPACE   88
+txtln24  SPACE   88
+txtln25  SPACE   88
+txtln26  SPACE   88
+txtln27  SPACE   88
+txtln28  SPACE   88
+txtln29  SPACE   88
+txtln30  SPACE   88
+
+txtlines
+        DCD txtln00, txtln01, txtln02, txtln03, txtln04, txtln05
+        DCD txtln06, txtln07, txtln08, txtln09, txtln10, txtln11
+        DCD txtln12, txtln13, txtln14, txtln15, txtln16, txtln17
+        DCD txtln18, txtln19, txtln20, txtln21, txtln22, txtln23
+        DCD txtln24, txtln25, txtln26, txtln27, txtln28, txtln29
+        DCD txtln30
+
+
+
+
+
+; mouse click handling
+;
+
+        ALIGN   64
+
+; button constants
+;
+
+
+BT_Ignore      EQU &0000
+BT_Over        EQU &1000
+BT_ClickAR     EQU &2000
+BT_Click       EQU &3000
+BT_Release     EQU &4000
+BT_2Click      EQU &5000
+BT_ClickDrag   EQU &6000
+BT_ReleaseDrag EQU &7000
+BT_2ClickDrag  EQU &8000
+BT_OverClick   EQU &9000
+BT_1Drag2      EQU &a000
+BT_1Drag       EQU &b000
+BT_CaretDrag   EQU &e000
+BT_Caret       EQU &f000
+
+
+; offsets
+
+wherex  EQU     0
+wherey  EQU     4
+whereb  EQU     8
+whereh  EQU     12
+wherei  EQU     16
+
+where
+        DCD     0                   ; x
+        DCD     0                   ; y
+        DCD     0                   ; buttons
+        DCD     0                   ; window handle
+        DCD     0                   ; icon handle
+        DCD     0
+
+
+; sprites
+;
+
+        ALIGN   64
+        AREA    |spritearea|, DATA, READWRITE
+
+; sprite
+;
+
+        SPACE   32
+sprname DCB     "offscn", 0, 0
+sprtptr DCD     0
+sprw    DCD     1536
+sprh    DCD     1024
+sprx    DCD     800
+spry    DCD     600
+sprdir  DCD     0
+
+sprcoord
+        DCD     0, 0
+
+
+sprsav  SPACE   64
+
+sprasize
+        DCD     1024*1024*4
+sprbase
+        DCD     &8000 + 1024*1024*4
+
+        ALIGN   64
+
+
+
+        ALIGN   64
+        AREA    |main|, CODE, READONLY
+
+; program code
+
+        CODE32
+
+
+        ENTRY
+        ADDR    r13, rp0
+        LDR     r13, [r13]
+
+        ADDR    r8, slotmem
+        LDR     r0, [r8]
+        MOV     r1, #-1
+        SWI     Wimp_SlotSize
+
+        BL      initSprites
+
+
+        MOV     r0, #1
+        ADDR    r8, task
+        LDR     r1, [r8]        ; "TASK"
+        ADDR    r8, minver
+        LDR     r0, [r8]
+        ADDR    r2, name
+        ADDR    r3, wanted
+        SWI     Wimp_Initialise
+        ADDR    r8,  osver
+        STR     r0, [r8, #4]!   ; osver
+        STR     r1, [r8]        ; taskhandle to handle
+
+        ; make and open window
+        ADDR    r1, winsetting
+
+        SWI     Wimp_CreateWindow
+
+        ADDR    r2, hwnd
+        STR     r0, [r2]
+        ADDR    r2, phwnd
+        STR     r0, [r2]
+
+        ADDR    r1, phwnd
+        ADDR    r2, winscratch
+        ADDR    r3, winsetting
+
+        LDR     r0, [r3,#wminx]  ; min x
+        STR     r0, [r2,#wminx]
+
+        LDR     r0, [r3,#wminy]  ; min y
+        STR     r0, [r2,#wminy]
+
+        LDR     r0, [r3,#wmaxx]  ; max x
+        STR     r0, [r2,#wmaxx]
+
+        LDR     r0, [r3,#wmaxy]  ; max y
+        STR     r0, [r2,#wmaxy]
+
+        LDR     r0, [r3,#xscrl]  ; sx
+        STR     r0, [r2,#xscrl]
+
+        LDR     r0, [r3,#yscrl]  ; sy
+        STR     r0, [r2,#yscrl]
+
+        LDR     r0, [r3,#bhind]  ; handle (-1)
+        STR     r0, [r2,#bhind]
+        SWI     Wimp_OpenWindow
+
+        ; WIMP POLL
+
+        EOR     r0, r0, r0
+        ADDR    r8,fini
+        STR     r0,[r8]
+
+
+polling
+
+        ; count messages
+        ;ADRL    r8, mxpolls
+        ;LDR     r6, [r8]
+
+        ;ADRL    r8, trips
+        ;LDR     r7, [r8]
+        ;ADD     r7, r7, #1
+        ;STR     r7, [r8]
+        ;CMP     r7, r6
+
+
+pollwimp
+
+        MOV     r0, #1
+        ADDR    r1, poll
+        ADDR    r3, wanted
+        ADDR    r2, thndl           ; our task handle
+        LDR     r2, [r2]
+        SWI     Wimp_Poll
+
+        ADDR    r2, evtcd
+        STR     r0, [r2]             ; message type
+        ADDR    r3, action
+        LDR     r1, [r2,#16]         ; message action
+        STR     r1, [r3]
+
+        CMP     r0, #0
+        BEQ     qquit
+
+        ADDR    r1, poll
+
+amesg
+       ; MOV    r6, r0
+       ; BL     saymsg
+       ; MOV    r0, r6
+
+msg1
+        CMP     r0, #1      ; draw win
+        BEQ     OnRedraw
+
+msg2
+        CMP     r0, #2      ; open win message (e.g. it moved)
+        BNE     msg3
+        SWI     Wimp_OpenWindow
+        B       qquit
+
+msg3    CMP     r0, #3      ; close win and quit
+        BNE     msg4
+
+        SWI     Wimp_DeleteWindow
+        ADDR    r2, thndl
+        LDR     r0, [r2]
+        SWI     Wimp_CloseDown
+        SWI     OS_Exit
+
+
+msg4    CMP     r0, #4            ; pointer leaving
+        BLEQ    ptrleave
+        BEQ     qquit
+
+msg5    CMP     r0, #5            ; pointer entering
+        BLEQ    ptrenter
+        BEQ     qquit
+
+msg6    CMP     r0, #6            ; mouse click
+        BNE     msg18
+
+        ADDR    r2, where         ; track where clicked.
+        LDR     r0, [r1,#wherex]  ; x
+        STR     r0, [r2,#wherex]
+        LDR     r0, [r1,#wherey]  ; y
+        STR     r0, [r2,#wherey]
+        LDR     r0, [r1,#whereb]  ; button
+        STR     r0, [r2,#whereb]
+        LDR     r3, [r1,#whereh]  ; handle
+        STR     r3, [r2,#whereh]
+        LDR     r0, [r1,#wherei]  ; icon
+        STR     r0, [r8,#wherei]
+
+        MOV     r0, r3
+        MOV     r1, #-1
+        MOV     r2, #0
+        MOV     r3, #-256
+        MOV     r4, #32
+        MOV     r5, #-1
+        SWI     Wimp_SetCaretPosition
+
+
+
+
+
+        B       qquit
+
+
+msg18   CMP     r0, #18       ; user message
+        BNE     msg17
+        ; ..
+        B       polling
+
+msg17   CMP     r0, #17
+        BNE     qquit
+        CMP     r7, #8
+        BLEQ    preq
+        BEQ     qquit
+        CMP     r7, #0        ; quit message
+        BEQ     quit
+
+
+
+qquit
+        ADDR    r2, fini      ; ready to quit?
+        LDR     r2, [r2]
+        CMP     r2, #1
+        BNE     polling
+
+
+
+quit
+
+        ;ADDR    r0, bye      ; announce bye
+        ;SWI     OS_Write0
+        ;SWI     OS_NewLine
+
+        ADDR    r8, thndl
+        LDR     r0, [r8]
+        SWI     Wimp_CloseDown
+        SWI     OS_Exit
+
+
+; say message
+
+
+
+saymsg
+        ADDR    r0, m1
+        SWI     OS_Write0
+
+        ADDR    r8, evtcd
+        LDR     R0, [r8]
+        MOV     r2, #160
+        ADDR    r1, scratch
+        SWI     OS_ConvertInteger4
+        ADDR    r0, scratch
+        SWI     OS_Write0
+
+        ADDR    r0, m2
+        SWI     OS_Write0
+
+        ADDR    r8, action
+        LDR     R0, [r8]
+        MOV     r2, #160
+        ADDR    r1, scratch
+        SWI     OS_ConvertHex8
+        ADDR    r0, scratch
+        SWI     OS_Write0
+
+        ADDR    r0, m3
+        SWI     OS_Write0
+
+        ADDR    r8, fini
+        LDR     R0, [r8]
+        MOV     r2, #160
+        ADDR    r1, scratch
+        SWI     OS_ConvertInteger4
+        ADDR    r0, scratch
+        SWI     OS_Write0
+
+        ADDR    r0, m4
+        SWI     OS_Write0
+
+        ADDR    r8, trips
+        LDR     R0, [r8]
+        MOV     r2, #160
+        ADDR    r1, scratch
+        SWI     OS_ConvertInteger4
+        ADDR    r0, scratch
+        SWI     OS_Write0
+
+
+        SWI     OS_NewLine
+        MOV     r15, r14
+
+
+ptrenter
+ptrleave
+
+
+preq
+        MOV     r15, r14
+
+
+; we use on click to gain the caret
+
+
+
+
+
+
+drawthing
+        Push    "r0-r2,lr"
+        BL      plotSpriteAt
+        Pull    "r0-r2,pc"
+       ;
+       ; MOV     r1, #0
+       ; ADDL    r1, &0F0F0F
+       ; MOV     r0, #0
+       ; SWI     OS_SetColour
+       ;
+       ;
+       ; ADDR    r1, settingsblk
+       ; ADDR    r2, hwnd ; copy handle
+       ; LDR     r0, [r2]
+       ; STR     r0, [r1]
+       ; SWI     Wimp_GetWindowState
+       ;
+       ; ADDR    r0, winsize
+       ; LDR     r3, [r0, #wminx]
+       ; LDR     r4, [r0, #wminy]
+       ;
+       ;
+       ; ADDR    r0, where
+       ; LDR     r1, [r0,#wherex]
+       ; LDR     r2, [r0,#wherey]
+       ;
+       ; MOV     r1, #200
+       ; MOV     r2, #200
+       ; SUB     r1, r1, r3
+       ; SUB     r2, r2, r4
+       ;
+       ;
+       ; MOV     r0, #180
+       ; SWI     OS_Plot
+       ;
+       ; MOV     r0, #5
+       ; SWI     OS_WriteC
+       ;
+       ; ADDR    r0, hello
+       ; SWI     OS_Write0
+       ; SWI     OS_NewLine
+       ; Pull    "r0-r2,pc"
+
+
+OnRedraw
+
+        Push    "r0-r2"
+        SWI     Wimp_RedrawWindow
+
+        CMP     r0, #0
+        Pull    "r0-r2", EQ
+        BEQ     qquit
+
+        MOV     r2, #0
+
+nextrect
+
+        SWI     Wimp_GetRectangle
+
+        BL      drawthing
+
+        CMP    r0, #0
+        Pull    "r0-r2", EQ
+        BEQ    qquit
+
+        INC    r2
+        B      nextrect
+
+
+
+; direct output to sprite/screen
+
+plotSpriteAt
+
+       Push  "r0-r5, lr"
+       MOV   r0, #34
+       ADD   r0, r0, #256
+       ADDR  r1, sprbase
+       LDR   r1, [r1]
+       ADDR  r2, sprtptr
+       LDR   r2, r2
+       ADDR  r5, sprcoord
+       LDR   r3, [r5, #0]
+       LDR   r4, [r5, #4]
+       MOV   r3, #0
+       MOV   r4, #0
+       MOV   r5, #0
+       SWI   OS_SpriteOp
+       Pull  "r0-r5, pc"
+
+toSprite
+
+       Push  "r0-r4, lr"
+       ADDR  r4, sprdir
+       LDR   r0, [r4]
+       ORRS  R0,R0,R0
+       Pull "r0-r4, pc", EQ
+
+       MOV   r0, #1
+       STR   r0, [r4]
+
+       ADDR  r1, sprbase
+       LDR   r1, [r1]
+       MOV   r0, #60
+       ADD   r0, r0, #256
+       ADDR  r2, sprname
+       MOV   r3, #0
+       SWI   OS_SpriteOp
+       ADDR  r4, sprsav
+       STR   r0, [r4, #4]!
+       STR   r1, [r4, #4]!
+       STR   r2, [r4, #4]!
+       STR   r3, [r4, #4]!
+       Pull "r0-r4, pc"
+
+toScreen
+
+       Push  "r0-r4, lr"
+       ADDR  r4, sprdir
+       LDR   r0, [r4]
+       ORRS  R0,R0,R0
+       Pull  "r0-r4, pc", EQ
+       ADDR  r1, sprbase
+       LDR   r1, [r1]
+       MOV   r0, #0
+       STR   r0, [r4]
+
+       ADDR  r4, sprsav
+       LDR   r0, [r4, #4]!
+       LDR   r1, [r4, #4]!
+       LDR   r2, [r4, #4]!
+       LDR   r3, [r4, #4]!
+       SWI   OS_SpriteOp
+       Pull  "r0-r4,pc"
+
+makeFromScreen
+
+       Push  "r0-r8,lr"
+       MOV   r0, #16
+       ADD   r0, r0, #256
+       ADDR  r1, sprbase
+       LDR   r1, [r1]
+       ADDR  r2, sprname
+       MOV   r3, #0
+       MOV   r4, #0
+       MOV   r5, #0
+       ADDR  r8, sprw
+       LDR   r6, [r8]
+       ADDR  r8, sprh
+       LDR   r7, [r8]
+       SWI   OS_SpriteOp
+       ADDR  r8, sprtptr
+       STR   r2, [r8]
+       Pull "r0-r8, pc"
+
+initSprites
+
+       Push  "r0-r5, lr"
+
+       ADDR  r4, sprbase
+       LDR   r4, [r4]
+
+       ADDR  r5, sprasize
+       LDR   r0, [r5]
+       STR   r0, [r4, #4]!
+       MOV   r0, #0
+       STR   r0, [r4, #4]!
+       MOV   r0, #16
+       STR   r0, [r4, #4]!
+       STR   r0, [r4, #4]!
+
+       ADDR  r4, sprbase
+       LDR   r1, [r4]
+       MOV   r0, #9
+       ADD   r0, r0, #256
+       SWI   OS_SpriteOp
+
+       BL    makeFromScreen
+       Pull  "r0-r5, pc"
+
+
+
+
+
+
+
+
+
+
+        END
+
+
+
+
