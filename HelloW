@@ -454,7 +454,7 @@ c2col     EQU    cbase + 12
 ; -- Text
 
 textsz    EQU    8192
-texttop   EQU    cbase - 512
+texttop   EQU    cbase - textsz
 cursor    EQU    texttop
 curx      EQU    texttop
 cury      EQU    texttop + 4
@@ -492,34 +492,26 @@ insovr    EQU    kbdbase + 32
 colns  EQU  88
 rowns  EQU  30
 
-enterKey
-       Push   "r0-r1, lr"
-       LDR   r1, =cursor
-       LDR   r0, [r1, #4]
-       CMP   r0, #rowns
-       ADDLT r0, r0, #1
-       STRLT r0, [r1,#4]
-       MOVLT r0, #0
-       STRLT r0, [r1]
-       Pull  "r0-r1, pc"
 
 leftArrow
        Push   "r0-r1, lr"
        LDR   r1, =cursor
        LDR   r0, [r1]
-       CMP   r0, #0
+       CMP   r0, #1
        SUBGT r0, r0, #1
        STRGT r0, [r1]
        Pull  "r0-r1, pc"
 
 rightArrow
-       Push   "r0-r1, lr"
+       Push   "r0-r2, lr"
        LDR   r1, =cursor
        LDR   r0, [r1]
-       CMP   r0, #colns
+       MOV   r2, #colns
+       SUB   r2, r2, #1
+       CMP   r0, r2
        ADDLT r0, r0, #1
        STRLT r0, [r1]
-       Pull  "r0-r1, pc"
+       Pull  "r0-r2, pc"
 
 downArrow
        Push   "r0-r1, lr"
@@ -576,12 +568,14 @@ setFgBgCols
        SWI     OS_SetColour
        Pull  "r0-r4, pc"
 
+
 setStdCurCol
        Push   "r0-r2, lr"
        LDR     r2, =colours
        LDR     r1, [r2, #8]
        MOV     r0, #0
        Pull  "r0-r2, pc"
+
 
 setCpyCurCol
        Push   "r0-r2, lr"
@@ -590,13 +584,16 @@ setCpyCurCol
        MOV     r0, #0
        Pull  "r0-r2, pc"
 
+
 homeCursor
        Push   "r0-r1, lr"
        LDR   r1, =cursor
-       MOV   r0, #0
+       MOV   r0, #1
        STR   r0, [r1]
+       SUB   r0, r0, #1
        STR   r0, [r1, #4]
        Pull  "r0-r1, pc"
+
 
 displayCursor
 
@@ -623,6 +620,7 @@ displayCursor
        BL    setFgBgCols
        Pull  "r0-r6, pc"
 
+
 blankText ROUT
 
        Push   "r0-r5, lr"
@@ -638,6 +636,218 @@ blankText ROUT
        BGT    %10
        Pull   "r0-r5, pc"
 
+
+; blank line below ctrl n; perhaps ctrl enter
+
+CtrlN ROUT
+
+       Push  "r0-r7, lr"
+       LDR   r6, =cursor
+       LDMIA r6, {r4, r5}
+       MOV   r1, #rowns
+       CMP   r5, r1
+       Pull  "r0-r7, pc", GE
+
+       MOV   r2, r5
+       CMP   r2, r1
+       Pull  "r0-r7, pc", GE
+
+010    MOV   r0, r1
+       BL    lineCpyDown
+       SUB   r1, r1, #1
+       CMP   r2, r1
+       BNE   %10
+
+       LDR   r1, =cursor    ; down and right
+       LDR   r0, [r1, #4]
+       MOV   r5, r0
+       CMP   r0, #rowns
+       ADDLT r0, r0, #1
+       STRLT r0, [r1,#4]
+       MOVLT r0, #1
+       STRLT r0, [r1]
+       ADD   r5, r5, #2
+       ; blank current line.
+       MOV    r6, #colns
+       LDR    r7, =texttop
+       MUL    r1, r6, r5   ; y * colns
+       SUB    r7, r7, r1   ; from top
+       ; space fill
+       LDR    r0, =&20202020
+       MOV    r1, #22
+020    STR    r0, [r7]
+       ADD    r7, r7, #4
+       SUB    r1, r1, #1
+       CMP    r1, #0
+       BNE    %020
+
+       Pull  "r0-r7, pc"
+
+; duplicate this line below.
+
+CtrlD  ROUT
+
+       Push  "r0-r5, lr"
+       LDR   r6, =cursor
+       LDMIA r6, {r4, r5}
+       MOV   r1, #rowns
+       CMP   r5, r1
+       Pull  "r0-r5, pc", GE
+
+       MOV   r2, r5
+       CMP   r2, r1
+       Pull  "r0-r5, pc", GE
+
+010    MOV   r0, r1
+       BL    lineCpyDown
+       SUB   r1, r1, #1
+       CMP   r2, r1
+       BNE   %10
+       Pull  "r0-r5, pc"
+
+
+; kill this line and move up
+
+CtrlK  ROUT
+
+       Push  "r0-r5, lr"
+       LDR   r6, =cursor
+       LDMIA r6, {r4, r5}
+       MOV   r1, #rowns
+       CMP   r5, r1
+       Pull  "r0-r5, pc", GE
+
+010    ADD   r0, r5, #1
+       BL    lineCpyUp
+       ADD   r5, r5, #1
+       CMP   r5, r1
+       BLE   %10
+       Pull  "r0-r5, pc"
+
+; r0 = row, copy up to next line.
+lineCpyUp
+
+       Push  "r0-r8, lr"
+       MOV    r6, #colns
+       LDR    r7, =texttop
+       MUL    r1, r6, r0   ; y * colns
+       SUB    r7, r7, r1   ; from top
+
+       LDR    r8, =texttop
+       ADD    r0, r0, #1  ; y + 1
+       MUL    r1, r6, r0
+       SUB    r8, r8, r1
+       MOV    r5, r7
+       MOV    r7, r8
+       MOV    r8, r5
+       B      copyLine
+
+
+; r0 = row, copy down to next line.
+lineCpyDown
+       Push  "r0-r8, lr"
+       MOV    r6, #colns
+       LDR    r7, =texttop
+       MUL    r1, r6, r0   ; y * colns
+       SUB    r7, r7, r1   ; from top
+
+       LDR    r8, =texttop
+       ADD    r0, r0, #1  ; y +1
+       MUL    r1, r6, r0
+       SUB    r8, r8, r1
+
+copyLine ROUT
+
+       ; copy from r7 to r8; 88 bytes.
+       MOV r3, #11
+010    LDMIA  r7, {r0, r1}
+       STMIA  r8, {r0, r1}
+       ADD    r7, r7, #8
+       ADD    r8, r8, #8
+       SUB    r3, r3, #1
+       CMP    r3, #0
+       BNE    %10
+
+       Pull  "r0-r8, pc"
+
+
+
+enterKey ROUT
+
+       Push   "r0-r8, lr"
+
+       LDR    r5, =insovr
+       LDR    r2, [r5]
+       CMP    r2, #0
+       B      %010
+
+       LDR    r7, =texttop
+       LDR    r8, =cursor
+       MOV    r6, #colns
+
+       LDMIA  r8, {r3, r4} ; x y
+
+       ; move lines
+       MOV    r5, #rowns
+       SUB    r5, r5, r4   ; #lines to move
+       SUB    r5, r5, #1
+020    SUB    r5, r5, #1
+       MOV    r0, r5
+       BL     enterKeycpyDown
+       CMP    r5, #0
+       BGT    %020
+
+
+       ADD    r4, r4, #1
+       MUL    r1, r4, r6   ; y * colns
+       SUB    r1, r1, r3   ; + x
+       SUB    r7, r7, r1   ; from top
+
+
+downAndRight
+
+010    LDR   r1, =cursor         ; down and right
+       LDR   r0, [r1, #4]
+       CMP   r0, #rowns
+       ADDLT r0, r0, #1
+       STRLT r0, [r1,#4]
+       MOVLT r0, #1
+       STRLT r0, [r1]
+       Pull  "r0-r8, pc"
+
+enterKeycpyDown
+; r0 = row, copy to next line.
+
+       Push  "r0-r8, lr"
+       MOV    r6, #colns
+       LDR    r7, =texttop
+       MUL    r1, r6, r0   ; y * colns
+       SUB    r7, r7, r1   ; from top
+
+       LDR    r8, =texttop
+       ADD    r0, r0, #1  ; y +1
+       MUL    r1, r6, r0
+       SUB    r8, r8, r1
+
+       ; copy from r7 to r8
+       LDMIA  r7, {r0, r1, r2, r3, r4, r5}   ; 24
+       STMIA  r8, {r0, r1, r2, r3, r4, r5}   ;
+       SUB    r8, r8, #24
+       SUB    r7, r7, #24
+       LDMIA  r7, {r0, r1, r2, r3, r4, r5}   ; 48
+       STMIA  r8, {r0, r1, r2, r3, r4, r5}   ;
+       SUB    r8, r8, #24
+       SUB    r7, r7, #24
+       LDMIA  r7, {r0, r1, r2, r3, r4, r5}   ; 72
+       LDMIA  r8, {r0, r1, r2, r3, r4, r5}
+       SUB    r8, r8, #24
+       SUB    r7, r7, #24
+       LDMIA  r7, {r0, r1, r2, r3 }          ; 88
+       STMIA  r7, {r0, r1, r2, r3 }          ;
+
+       Pull  "r0-r8, pc"
+
+
 displayAblePress ROUT  ; in r0
 
        Push   "r1-r8, lr"
@@ -646,6 +856,9 @@ displayAblePress ROUT  ; in r0
        MOV    r6, #colns
 
        LDMIA  r8, {r3, r4}
+       CMP    r3, r6
+       Pull   "r1-r8, pc", EQ
+
        ADD    r4, r4, #1
        MUL    r1, r4, r6   ; y * colns
        SUB    r1, r1, r3   ; + x
@@ -692,24 +905,28 @@ delKeyPress   ROUT
        SUB    r5, r6, r3   ; colns - x
        CMP    r5, #0
        BLEQ   %01
-       CMP    r5, r6
-       ADDEQ  r6, r7, r5
-       MOVEQ  r0, #&23
-       STREQB r0, [r6]
 
+       CMP    r5, #1
+       BNE    %05
+       B      %04
+
+       CMP    r3, #1
+       B      %04
+
+       Pull   "r0-r8, pc"
+05     ADD    r6, r6, #1
        MOV    r8, r7
        SUB    r8, r8, #1
 02     SUB    r5, r5, #1   ; -1
        LDRB   r1, [r8, #1]
        STRB   r1, [r8]
        ADD    r8, r8, #1
-       STRB   r0, [r6]
        CMP    r5, #0
        BNE    %02
        BL     leftArrow
-
        Pull   "r0-r8, pc"
 
+04     MOV    r0, #&20
 01     STRB   r0, [r7]
 
        BL     leftArrow    ; backspace
@@ -1110,6 +1327,8 @@ rarrow  EQU     &18D
 larrow  EQU     &18C
 uarrow  EQU     &18F
 darrow  EQU     &18E
+kinsert EQU     &1CD
+
 
 
 08      CMP     r0, #8
@@ -1130,6 +1349,11 @@ darrow  EQU     &18E
 
 
 081     ; special keys
+
+        LDR     r2, =kinsert
+        CMP     r0, r2   ; left
+        BLEQ    CtrlD
+
         LDR     r2, =larrow
         CMP     r0, r2   ; left
         BLEQ    leftArrow
@@ -1158,6 +1382,17 @@ darrow  EQU     &18E
         CMP     r0, #12
         BLEQ    homeCursor
         BLEQ    blankText
+
+        CMP     r0, #04
+        BLEQ    CtrlD
+
+        CMP     r0, #11
+        BLEQ    CtrlK
+
+        CMP     r0, #14
+        BLEQ    CtrlN
+
+
 
 
 082
