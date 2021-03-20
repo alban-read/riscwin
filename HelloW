@@ -452,12 +452,14 @@ c1col     EQU    cbase + 8
 c2col     EQU    cbase + 12
 
 ; -- Text
-
+textpgs   EQU    8
 textsz    EQU    8192
-texttop   EQU    cbase - textsz
+texttop   EQU    cbase - textsz*8
+
 cursor    EQU    texttop
 curx      EQU    texttop
 cury      EQU    texttop + 4
+textpg    EQU    texttop + 8
 ; ..
 textbase  EQU    texttop - textsz
 
@@ -637,6 +639,52 @@ blankText ROUT
        Pull   "r0-r5, pc"
 
 
+enterKey ROUT
+
+       Push  "r0-r7, lr"
+       LDR   r6, =cursor
+       LDMIA r6, {r4, r5}
+       MOV   r1, #rowns
+       CMP   r5, r1
+       Pull  "r0-r7, pc", GE
+
+       MOV   r2, r5
+       CMP   r2, r1
+       Pull  "r0-r7, pc", GE
+
+010    MOV   r0, r1
+       BL    lineCpyDown
+       SUB   r1, r1, #1
+       CMP   r2, r1
+       BNE   %10
+
+       LDR   r1, =cursor    ; down and right
+       LDR   r0, [r1, #4]
+       MOV   r5, r0
+       CMP   r0, #rowns
+       ADDLT r0, r0, #1
+       STRLT r0, [r1,#4]
+       MOVLT r0, #1
+       STRLT r0, [r1]
+       ADD   r5, r5, #2
+       ; blank current line.
+       MOV    r6, #colns
+       LDR    r7, =texttop
+       MUL    r1, r6, r5   ; y * colns
+       SUB    r7, r7, r1   ; from top
+       ; space fill
+       LDR    r0, =&20202020
+       MOV    r1, #22
+020    STR    r0, [r7]
+       ADD    r7, r7, #4
+       SUB    r1, r1, #1
+       CMP    r1, #0
+       BNE    %020
+
+       Pull  "r0-r7, pc"
+
+
+
 ; blank line below ctrl n; perhaps ctrl enter
 
 CtrlN ROUT
@@ -772,82 +820,6 @@ copyLine ROUT
 
 
 
-enterKey ROUT
-
-       Push   "r0-r8, lr"
-
-       LDR    r5, =insovr
-       LDR    r2, [r5]
-       CMP    r2, #0
-       B      %010
-
-       LDR    r7, =texttop
-       LDR    r8, =cursor
-       MOV    r6, #colns
-
-       LDMIA  r8, {r3, r4} ; x y
-
-       ; move lines
-       MOV    r5, #rowns
-       SUB    r5, r5, r4   ; #lines to move
-       SUB    r5, r5, #1
-020    SUB    r5, r5, #1
-       MOV    r0, r5
-       BL     enterKeycpyDown
-       CMP    r5, #0
-       BGT    %020
-
-
-       ADD    r4, r4, #1
-       MUL    r1, r4, r6   ; y * colns
-       SUB    r1, r1, r3   ; + x
-       SUB    r7, r7, r1   ; from top
-
-
-downAndRight
-
-010    LDR   r1, =cursor         ; down and right
-       LDR   r0, [r1, #4]
-       CMP   r0, #rowns
-       ADDLT r0, r0, #1
-       STRLT r0, [r1,#4]
-       MOVLT r0, #1
-       STRLT r0, [r1]
-       Pull  "r0-r8, pc"
-
-enterKeycpyDown
-; r0 = row, copy to next line.
-
-       Push  "r0-r8, lr"
-       MOV    r6, #colns
-       LDR    r7, =texttop
-       MUL    r1, r6, r0   ; y * colns
-       SUB    r7, r7, r1   ; from top
-
-       LDR    r8, =texttop
-       ADD    r0, r0, #1  ; y +1
-       MUL    r1, r6, r0
-       SUB    r8, r8, r1
-
-       ; copy from r7 to r8
-       LDMIA  r7, {r0, r1, r2, r3, r4, r5}   ; 24
-       STMIA  r8, {r0, r1, r2, r3, r4, r5}   ;
-       SUB    r8, r8, #24
-       SUB    r7, r7, #24
-       LDMIA  r7, {r0, r1, r2, r3, r4, r5}   ; 48
-       STMIA  r8, {r0, r1, r2, r3, r4, r5}   ;
-       SUB    r8, r8, #24
-       SUB    r7, r7, #24
-       LDMIA  r7, {r0, r1, r2, r3, r4, r5}   ; 72
-       LDMIA  r8, {r0, r1, r2, r3, r4, r5}
-       SUB    r8, r8, #24
-       SUB    r7, r7, #24
-       LDMIA  r7, {r0, r1, r2, r3 }          ; 88
-       STMIA  r7, {r0, r1, r2, r3 }          ;
-
-       Pull  "r0-r8, pc"
-
-
 displayAblePress ROUT  ; in r0
 
        Push   "r1-r8, lr"
@@ -889,6 +861,9 @@ displayAblePress ROUT  ; in r0
 
 
 ; bug at end of line in ins mode
+
+
+
 delKeyPress   ROUT
 
        Push   "r0-r8, lr"
@@ -897,12 +872,34 @@ delKeyPress   ROUT
        LDR    r8, =cursor
        MOV    r6, #colns
        LDMIA  r8, {r3, r4}
+       MOV    r8, r7       ;
        ADD    r4, r4, #1
        MUL    r1, r4, r6   ; y * colns
+       SUB    r8, r8, r1   ; base of line
        SUB    r1, r1, r3   ; + x
        SUB    r7, r7, r1   ; from top
 
-       SUB    r5, r6, r3   ; colns - x
+       ; check if the whole line is blank
+       
+       LDR    r1, =&20202020
+       MOV    r5, r6, asr #4
+08     LDR    r0, [r8]
+       ADD    r8, r8, #4
+       SUB    r5, r5, #1
+
+       CMP    r0, r1
+       BNE    %010     ; not all spaces
+
+       CMP    r5, #0
+       BNE    %08
+
+       ; whole line was blank so delete it
+
+       BL     CtrlK
+       Pull   "r0-r8, pc", GE
+
+
+010    SUB    r5, r6, r3   ; colns - x
        CMP    r5, #0
        BLEQ   %01
 
@@ -1373,10 +1370,12 @@ kinsert EQU     &1CD
         CMP     r0, #13
         BLEQ    enterKey
 
-        CMP     r0, #127 ; DELETE
-        BLEQ    delKeyPress
+        CMP     r0, #127    ; DELETE
+        BNE     %083
+        BL       rightArrow
+        BL       delKeyPress
 
-        CMP     r0, #08  ; BS
+083     CMP     r0, #08     ; BACK SPACE
         BLEQ    delKeyPress
 
         CMP     r0, #12
@@ -1396,7 +1395,8 @@ kinsert EQU     &1CD
 
 
 082
-        ; display on screen
+        ; display updated text layer
+
         BL      toSprite
         BL      setFgBgCols
 
@@ -1407,7 +1407,6 @@ kinsert EQU     &1CD
         BL      displayCursor
         BL      toScreen
         BL      refreshWindow
-
 
 
         B       qquit
