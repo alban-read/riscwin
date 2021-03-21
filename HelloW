@@ -288,13 +288,15 @@ prebye  DCB  "Ready to quit?",0
         ALIGN
 bytes   DCB  " Bytes available", 0
         ALIGN
-m1      DCB  "Message# ", 0
+m1      DCB  "PAGE# ", 0
         ALIGN
-m2      DCB  " Action# ", 0
+m2      DCB  " LINE# ", 0
         ALIGN
-m3      DCB  " Quit? ", 0
+m3      DCB  " COL# ", 0
         ALIGN
 m4      DCB  " Polls: ", 0
+        ALIGN
+m6      DCB  " Polls: ", 0
         ALIGN
 
 minver  DCD 310                     ; required os version
@@ -451,17 +453,87 @@ bgcol     EQU    cbase + 4
 c1col     EQU    cbase + 8
 c2col     EQU    cbase + 12
 
-; -- Text
-textpgs   EQU    8
-textsz    EQU    8192
-texttop   EQU    cbase - textsz*8
 
-cursor    EQU    texttop
-curx      EQU    texttop
-cury      EQU    texttop + 4
-textpg    EQU    texttop + 8
-; ..
-textbase  EQU    texttop - textsz
+; -- Text Pages
+; 60 page text editor for text overlay.
+
+textpgs   EQU    60
+textsz    EQU    2728 + 88
+textvars  EQU    cbase - 512
+cursor    EQU    textvars
+curx      EQU    textvars
+cury      EQU    textvars + 4
+textpg    EQU    textvars + 8
+
+textpad   EQU    textvars + 32
+
+pageptr   EQU    textvars + 36
+
+pageptr0  EQU    pageptr + 4
+
+texttop   EQU    textvars - 1024
+textpg0   EQU    texttop - textsz
+textpg1   EQU    textpg0 - textsz
+textpg2   EQU    textpg1 - textsz
+textpg3   EQU    textpg2 - textsz
+textpg4   EQU    textpg3 - textsz
+textpg5   EQU    textpg4 - textsz
+textpg6   EQU    textpg5 - textsz
+textpg7   EQU    textpg6 - textsz
+textpg8   EQU    textpg7 - textsz
+textpg9   EQU    textpg8 - textsz
+textpg10  EQU    textpg9 - textsz
+textpg11  EQU    textpg10 - textsz
+textpg12  EQU    textpg11 - textsz
+textpg13  EQU    textpg12 - textsz
+textpg14  EQU    textpg13 - textsz
+textpg15  EQU    textpg14 - textsz
+textpg16  EQU    textpg15 - textsz
+textpg17  EQU    textpg16 - textsz
+textpg18  EQU    textpg17 - textsz
+textpg19  EQU    textpg18 - textsz
+textpg20  EQU    textpg19 - textsz
+textpg21  EQU    textpg20 - textsz
+textpg22  EQU    textpg21 - textsz
+textpg23  EQU    textpg22 - textsz
+textpg24  EQU    textpg23 - textsz
+textpg25  EQU    textpg24 - textsz
+textpg26  EQU    textpg25 - textsz
+textpg27  EQU    textpg26 - textsz
+textpg28  EQU    textpg27 - textsz
+textpg29  EQU    textpg28 - textsz
+textpg30  EQU    textpg29 - textsz
+textpg31  EQU    textpg30 - textsz
+textpg32  EQU    textpg31 - textsz
+textpg33  EQU    textpg32 - textsz
+textpg34  EQU    textpg33 - textsz
+textpg35  EQU    textpg34 - textsz
+textpg36  EQU    textpg35 - textsz
+textpg37  EQU    textpg36 - textsz
+textpg38  EQU    textpg37 - textsz
+textpg39  EQU    textpg38 - textsz
+textpg40  EQU    textpg39 - textsz
+textpg41  EQU    textpg40 - textsz
+textpg42  EQU    textpg41 - textsz
+textpg43  EQU    textpg42 - textsz
+textpg44  EQU    textpg43 - textsz
+textpg45  EQU    textpg44 - textsz
+textpg46  EQU    textpg45 - textsz
+textpg47  EQU    textpg46 - textsz
+textpg48  EQU    textpg47 - textsz
+textpg49  EQU    textpg48 - textsz
+textpg50  EQU    textpg49 - textsz
+textpg51  EQU    textpg50 - textsz
+textpg52  EQU    textpg51 - textsz
+textpg53  EQU    textpg52 - textsz
+textpg54  EQU    textpg53 - textsz
+textpg55  EQU    textpg54 - textsz
+textpg56  EQU    textpg55 - textsz
+textpg57  EQU    textpg56 - textsz
+textpg58  EQU    textpg57 - textsz
+textpg59  EQU    textpg58 - textsz
+textpg60  EQU    textpg59 - textsz
+textbase  EQU    textpg60 - textsz
 
 
 
@@ -493,7 +565,154 @@ insovr    EQU    kbdbase + 32
 
 colns  EQU  88
 rowns  EQU  30
+pagen  EQU  60
 
+
+
+blankText ROUT
+
+       Push   "r0-r5, lr"
+       LDR    r4, =pageptr
+       LDR    r4, [r4]
+       LDR    r5, =textsz
+       SUB    r4, r4, r5
+       LDR    r0, =&20202020
+       MOV    r1, r0
+       MOV    r2, r0
+       MOV    r3, r0
+10     STMIA  r4!, {r0,r1,r2,r3}
+       STMIA  r4!, {r0,r1,r2,r3}
+       STMIA  r4!, {r0,r1,r2,r3}
+       STMIA  r4!, {r0,r1,r2,r3}
+       STMIA  r4!, {r0,r1,r2,r3}
+       STMIA  r4!, {r0,r1} ; 88..
+       DEC    r5, colns
+       STMIA  r4!, {r0,r1,r2,r3}
+       STMIA  r4!, {r0,r1,r2,r3}
+       STMIA  r4!, {r0,r1,r2,r3}
+       STMIA  r4!, {r0,r1,r2,r3}
+       STMIA  r4!, {r0,r1,r2,r3}
+       STMIA  r4!, {r0,r1} ; 88..
+       DEC    r5, colns
+       STMIA  r4!, {r0,r1,r2,r3}
+       STMIA  r4!, {r0,r1,r2,r3}
+       STMIA  r4!, {r0,r1,r2,r3}
+       STMIA  r4!, {r0,r1,r2,r3}
+       STMIA  r4!, {r0,r1,r2,r3}
+       STMIA  r4!, {r0,r1} ; 88..
+       DEC    r5, colns
+       STMIA  r4!, {r0,r1,r2,r3}
+       STMIA  r4!, {r0,r1,r2,r3}
+       STMIA  r4!, {r0,r1,r2,r3}
+       STMIA  r4!, {r0,r1,r2,r3}
+       STMIA  r4!, {r0,r1,r2,r3}
+       STMIA  r4!, {r0,r1} ; 88..
+       DEC    r5, colns
+       CMP    r5, #0
+       BGT    %10
+       Pull   "r0-r5, pc"
+
+
+blankAllText ROUT
+
+       Push   "r0-r5, lr"
+       LDR    r4, =textbase
+       LDR    r0, =&20202020
+       LDR    r5, =texttop-(88*4)
+       MOV    r1, r0
+       MOV    r2, r0
+       MOV    r3, r0
+10     STMIA  r4!, {r0,r1,r2,r3}
+       STMIA  r4!, {r0,r1,r2,r3}
+       STMIA  r4!, {r0,r1,r2,r3}
+       STMIA  r4!, {r0,r1,r2,r3}
+       STMIA  r4!, {r0,r1,r2,r3}
+       STMIA  r4!, {r0,r1} ; 88..
+       STMIA  r4!, {r0,r1,r2,r3}
+       STMIA  r4!, {r0,r1,r2,r3}
+       STMIA  r4!, {r0,r1,r2,r3}
+       STMIA  r4!, {r0,r1,r2,r3}
+       STMIA  r4!, {r0,r1,r2,r3}
+       STMIA  r4!, {r0,r1} ; 88..
+       STMIA  r4!, {r0,r1,r2,r3}
+       STMIA  r4!, {r0,r1,r2,r3}
+       STMIA  r4!, {r0,r1,r2,r3}
+       STMIA  r4!, {r0,r1,r2,r3}
+       STMIA  r4!, {r0,r1,r2,r3}
+       STMIA  r4!, {r0,r1} ; 88..
+       STMIA  r4!, {r0,r1,r2,r3}
+       STMIA  r4!, {r0,r1,r2,r3}
+       STMIA  r4!, {r0,r1,r2,r3}
+       STMIA  r4!, {r0,r1,r2,r3}
+       STMIA  r4!, {r0,r1,r2,r3}
+       STMIA  r4!, {r0,r1} ; 88..
+       CMP    r4, r5
+       BLT    %10
+       Pull   "r0-r5, pc"
+
+
+
+;
+statusBar
+
+       Push   "r0-r8, lr"
+
+       LDR     r1, =&AAAAAA
+       MOV     r0, #0
+       SWI     OS_SetColour
+
+       MOV    r0, #5
+       SWI    OS_WriteC ; at graphics point
+
+       MOV    r1, #16
+       MOV    r2, #22
+       MOV    r0, #180
+       SWI    OS_Plot
+
+       LDR     r2, =cursor
+       LDMIA   r2, {r4, r5, R6}
+       ADDR    r0, m2
+       SWI     OS_Write0
+
+       MOV     R0, R5
+       MOV     r2, #160
+       ADDR    r1, scratch
+       SWI     OS_ConvertInteger4
+       ADDR    r0, scratch
+       SWI     OS_Write0
+
+       MOV    r1, #200
+       MOV    r2, #22
+       MOV    r0, #180
+       SWI    OS_Plot
+
+       ADDR    r0, m3
+       SWI     OS_Write0
+
+       MOV     R0, R4
+       MOV     r2, #160
+       ADDR    r1, scratch
+       SWI     OS_ConvertInteger4
+       ADDR    r0, scratch
+       SWI     OS_Write0
+
+       MOV    r1, #400
+       MOV    r2, #22
+       MOV    r0, #180
+       SWI    OS_Plot
+
+       ADDR    r0, m1
+       SWI     OS_Write0
+
+       MOV     R0, R6
+       MOV     r2, #160
+       ADDR    r1, scratch
+       SWI     OS_ConvertInteger4
+       ADDR    r0, scratch
+       SWI     OS_Write0
+       Pull  "r0-r8, pc"
+
+; cursor keys move within text
 
 leftArrow
        Push   "r0-r1, lr"
@@ -541,8 +760,199 @@ cpyKeyPress
        STMIA  r8, {r0,r1,r2,r3,r4,r5,r6,r7}
        Pull   "r0-r9, pc"
 
+initPagePtrs
+       Push  "r0,r4, lr"
+       LDR   r4, =pageptr0
+       LDR   r0, =textpg0
+       STR   r0, [r4]
+       LDR   r0, =textpg1
+       STR   r0, [r4, #4]
+       LDR   r0, =textpg2
+       STR   r0, [r4, #8]
+       LDR   r0, =textpg3
+       STR   r0, [r4,#12]
+       LDR   r0, =textpg4
+       STR   r0, [r4,#16]
+       LDR   r0, =textpg5
+       STR   r0, [r4,#20]
+       LDR   r0, =textpg6
+       STR   r0, [r4,#24]
+       LDR   r0, =textpg7
+       STR   r0, [r4,#28]
+       LDR   r0, =textpg8
+       STR   r0, [r4,#32]
+       LDR   r0, =textpg9
+       STR   r0, [r4,#36]
+       LDR   r0, =textpg10
+       STR   r0, [r4,#40]
+       LDR   r0, =textpg11
+       STR   r0, [r4,#44]
+       LDR   r0, =textpg12
+       STR   r0, [r4,#48]
+       LDR   r0, =textpg13
+       STR   r0, [r4,#52]
+       LDR   r0, =textpg14
+       STR   r0, [r4,#56]
+       LDR   r0, =textpg15
+       STR   r0, [r4,#60]
+       LDR   r0, =textpg16
+       STR   r0, [r4,#64]
+       LDR   r0, =textpg17
+       STR   r0, [r4,#68]
+       LDR   r0, =textpg18
+       STR   r0, [r4,#18*4]
+       LDR   r0, =textpg19
+       STR   r0, [r4,#19*4]
+       LDR   r0, =textpg20
+       STR   r0, [r4,#20*4]
+       LDR   r0, =textpg21
+       STR   r0, [r4,#21*4]
+       LDR   r0, =textpg22
+       STR   r0, [r4,#22*4]
+       LDR   r0, =textpg23
+       STR   r0, [r4,#23*4]
+       LDR   r0, =textpg24
+       STR   r0, [r4,#24*4]
+       LDR   r0, =textpg25
+       STR   r0, [r4,#25*4]
+       LDR   r0, =textpg26
+       STR   r0, [r4,#26*4]
+       LDR   r0, =textpg27
+       STR   r0, [r4,#27*4]
+       LDR   r0, =textpg28
+       STR   r0, [r4,#28*4]
+       LDR   r0, =textpg29
+       STR   r0, [r4,#29*4]
+       LDR   r0, =textpg30
+       STR   r0, [r4,#30*4]
+       LDR   r0, =textpg31
+       STR   r0, [r4,#31*4]
+       LDR   r0, =textpg32
+       STR   r0, [r4,#32*4]
+       LDR   r0, =textpg33
+       STR   r0, [r4,#33*4]
+       LDR   r0, =textpg34
+       STR   r0, [r4,#34*4]
+       LDR   r0, =textpg35
+       STR   r0, [r4,#35*4]
+       LDR   r0, =textpg36
+       STR   r0, [r4,#36*4]
+       LDR   r0, =textpg37
+       STR   r0, [r4,#37*4]
+       LDR   r0, =textpg38
+       STR   r0, [r4,#38*4]
+       LDR   r0, =textpg39
+       STR   r0, [r4,#39*4]
+       LDR   r0, =textpg40
+       STR   r0, [r4,#40*4]
+       LDR   r0, =textpg41
+       STR   r0, [r4,#41*4]
+       LDR   r0, =textpg42
+       STR   r0, [r4,#42*4]
+       LDR   r0, =textpg43
+       STR   r0, [r4,#43*4]
+       LDR   r0, =textpg44
+       STR   r0, [r4,#44*4]
+       LDR   r0, =textpg45
+       STR   r0, [r4,#45*4]
+       LDR   r0, =textpg46
+       STR   r0, [r4,#46*4]
+       LDR   r0, =textpg47
+       STR   r0, [r4,#47*4]
+       LDR   r0, =textpg48
+       STR   r0, [r4,#48*4]
+       LDR   r0, =textpg49
+       STR   r0, [r4,#49*4]
+       LDR   r0, =textpg50
+       STR   r0, [r4,#50*4]
+       LDR   r0, =textpg51
+       STR   r0, [r4,#51*4]
+       LDR   r0, =textpg52
+       STR   r0, [r4,#52*4]
+       LDR   r0, =textpg53
+       STR   r0, [r4,#53*4]
+       LDR   r0, =textpg54
+       STR   r0, [r4,#54*4]
+       LDR   r0, =textpg55
+       STR   r0, [r4,#55*4]
+       LDR   r0, =textpg56
+       STR   r0, [r4,#56*4]
+       LDR   r0, =textpg57
+       STR   r0, [r4,#57*4]
+       LDR   r0, =textpg58
+       STR   r0, [r4,#58*4]
+       LDR   r0, =textpg59
+       STR   r0, [r4,#59*4]
+       LDR   r0, =textpg60
+       STR   r0, [r4,#60*4]
+       MOV   r0, #1
+       LDR   r4, =textpg
+       STR   r0, [r4]
+       Pull  "r0,r4,pc"
+
+
+setPagePtr
+       Push  "r0-r5, lr"
+       LDR   r4, =textpg
+       LDR   r2, [r4]
+       MOV   r3, #4
+       MUL   r5, r2, r3
+       LDR   r4, =pageptr0
+       LDR   r0, [r4,r5]
+       LDR   r5, =pageptr
+       STR   r0, [r5]
+       Pull  "r0-r5,pc"
+
+
+       LTORG
+
+
+pgupPress
+pageUp ROUT
+
+       Push  "r0-r5, lr"
+       LDR   r4, =textpg
+       LDR   r2, [r4]
+       CMP   r2, #59
+       Pull  "r0-r5,pc", GT
+
+       ADD   r2, r2, #1
+       STR   r2, [r4]
+       MOV   r3, #4
+       MUL   r5, r2, r3
+       LDR   r4, =pageptr0
+       LDR   r0, [r4,r5]
+       LDR   r5, =pageptr
+       STR   r0, [r5]
+       BL    homeCursor
+       Pull  "r0-r5,pc"
+
+
+pgdnPress
+pageDn
+       Push  "r0-r5, lr"
+       LDR   r4, =textpg
+       LDR   r2, [r4]
+       CMP   r2, #1
+       Pull  "r0-r5,pc", LT
+
+       SUB   r2, r2, #1
+       STR   r2, [r4]
+       MOV   r3, #4
+       MUL   r5, r2, r3
+       LDR   r4, =pageptr0
+       ;ADD   r4, r4, r5
+       LDR   r0, [r4,r5]
+       LDR   r5, =pageptr
+       STR   r0, [r5]
+       BL    homeCursor
+       Pull  "r0-r5,pc"
+
+
+
 ; assign default colours to fg, bg c1, c2.
 initTextCols
+
        Push   "r0-r4, lr"
        LDR   r4, =colours
        LDR   r0, =cpaper
@@ -555,6 +965,15 @@ initTextCols
        MOV   r0, #1
        LDR   r2, =insovr
        STR   r0, [r2]
+
+       ; SET PG TO 1
+       MOV   r0, #1
+       LDR   r2, =textpg
+       STR   r0, [r2]
+
+       ; set pageptr
+       BL    setPagePtr
+
        Pull  "r0-r4, pc"
 
 ; set fg and bg graphics colours
@@ -596,6 +1015,13 @@ homeCursor
        STR   r0, [r1, #4]
        Pull  "r0-r1, pc"
 
+homeLine
+       Push   "r0-r1, lr"
+       LDR   r1, =cursor
+       MOV   r0, #1
+       STR   r0, [r1]
+       Pull  "r0-r1, pc"
+
 
 displayCursor
 
@@ -622,21 +1048,6 @@ displayCursor
        BL    setFgBgCols
        Pull  "r0-r6, pc"
 
-
-blankText ROUT
-
-       Push   "r0-r5, lr"
-       LDR    r4, =textbase
-       LDR    r5, =textsz
-       LDR    r0, =&20202020
-       MOV    r1, r0
-       MOV    r2, r0
-       MOV    r3, r0
-10     STMIA  r4!, {r0,r1,r2,r3}
-       DEC    r5, 16
-       CMP    r5, #0
-       BGT    %10
-       Pull   "r0-r5, pc"
 
 
 enterKey ROUT
@@ -669,7 +1080,8 @@ enterKey ROUT
        ADD   r5, r5, #2
        ; blank current line.
        MOV    r6, #colns
-       LDR    r7, =texttop
+       LDR    r7, =pageptr
+       LDR    r7, [r7]
        MUL    r1, r6, r5   ; y * colns
        SUB    r7, r7, r1   ; from top
        ; space fill
@@ -717,9 +1129,11 @@ CtrlN ROUT
        ADD   r5, r5, #2
        ; blank current line.
        MOV    r6, #colns
-       LDR    r7, =texttop
+       LDR    r7, =pageptr
+       LDR    r7, [r7]
        MUL    r1, r6, r5   ; y * colns
        SUB    r7, r7, r1   ; from top
+
        ; space fill
        LDR    r0, =&20202020
        MOV    r1, #22
@@ -777,11 +1191,13 @@ lineCpyUp
 
        Push  "r0-r8, lr"
        MOV    r6, #colns
-       LDR    r7, =texttop
+       LDR    r7, =pageptr
+       LDR    r7, [r7]
        MUL    r1, r6, r0   ; y * colns
        SUB    r7, r7, r1   ; from top
 
-       LDR    r8, =texttop
+       LDR    r8, =pageptr
+       LDR    r8, [r8]
        ADD    r0, r0, #1  ; y + 1
        MUL    r1, r6, r0
        SUB    r8, r8, r1
@@ -795,11 +1211,13 @@ lineCpyUp
 lineCpyDown
        Push  "r0-r8, lr"
        MOV    r6, #colns
-       LDR    r7, =texttop
+       LDR    r7, =pageptr
+       LDR    r7, [r7]
        MUL    r1, r6, r0   ; y * colns
        SUB    r7, r7, r1   ; from top
 
-       LDR    r8, =texttop
+       LDR    r8, =pageptr
+       LDR    r8, [r8]
        ADD    r0, r0, #1  ; y +1
        MUL    r1, r6, r0
        SUB    r8, r8, r1
@@ -823,7 +1241,8 @@ copyLine ROUT
 displayAblePress ROUT  ; in r0
 
        Push   "r1-r8, lr"
-       LDR    r7, =texttop
+       LDR    r7, =pageptr
+       LDR    r7, [r7]
        LDR    r8, =cursor
        MOV    r6, #colns
 
@@ -868,7 +1287,8 @@ delKeyPress   ROUT
 
        Push   "r0-r8, lr"
        MOV    r0, #&20
-       LDR    r7, =texttop
+       LDR    r7, =pageptr
+       LDR    r7, [r7]
        LDR    r8, =cursor
        MOV    r6, #colns
        LDMIA  r8, {r3, r4}
@@ -880,22 +1300,22 @@ delKeyPress   ROUT
        SUB    r7, r7, r1   ; from top
 
        ; check if the whole line is blank
-       
+
        LDR    r1, =&20202020
        MOV    r5, r6, asr #4
 08     LDR    r0, [r8]
        ADD    r8, r8, #4
        SUB    r5, r5, #1
-
        CMP    r0, r1
-       BNE    %010     ; not all spaces
-
+       BNE    %010
        CMP    r5, #0
        BNE    %08
 
-       ; whole line was blank so delete it
-
+       ; delete blank line
        BL     CtrlK
+       LDR    r1, =cursor
+       MOV    r0, #1
+       STR    r0, [r1]
        Pull   "r0-r8, pc", GE
 
 
@@ -930,11 +1350,14 @@ delKeyPress   ROUT
 03     Pull   "r0-r8, pc"
 
 
+       LTORG
+
 displayLines ROUT
 
        Push   "r0-r8, lr"
-       LDR    r7, =texttop
-
+       LDR    r7, =pageptr
+       LDR    r6, =textsz
+       LDR    r7, [r7]
        MOV    r6, #rowns +1
        MOV    r5, #1000 ; line 0 Top of sprite
 10     MOV    r1, #10
@@ -1103,9 +1526,10 @@ plotSpriteInPoll
         LDR     r0, =sp0
         MOV     r13, r0
 
+        BL      initPagePtrs
         BL      initTextCols
         BL      homeCursor
-        BL      blankText
+        BL      blankAllText
         BL      initSprites
 
         BL      toSprite
@@ -1243,7 +1667,7 @@ amesg
         MOV     r1, #-1
         MOV     r2, #0
         MOV     r3, #-1
-        MOV     r4, #32
+        MOV     r4, #0
         MOV     r5, #-1
         SWI     Wimp_SetCaretPosition
 
@@ -1322,10 +1746,13 @@ amesg
 
 rarrow  EQU     &18D
 larrow  EQU     &18C
+clarrow EQU     &1AC
+crarrow EQU     &1AD
 uarrow  EQU     &18F
 darrow  EQU     &18E
 kinsert EQU     &1CD
-
+kpgup   EQU     &19F
+kpgdn   EQU     &19E
 
 
 08      CMP     r0, #8
@@ -1347,6 +1774,16 @@ kinsert EQU     &1CD
 
 081     ; special keys
 
+        LDR     r2, =kpgup
+        CMP     r0, r2   ; page up
+        BLEQ    pgupPress
+
+
+        LDR     r2, =kpgdn
+        CMP     r0, r2   ; page down
+        BLEQ    pgdnPress
+
+
         LDR     r2, =kinsert
         CMP     r0, r2   ; left
         BLEQ    CtrlD
@@ -1354,6 +1791,10 @@ kinsert EQU     &1CD
         LDR     r2, =larrow
         CMP     r0, r2   ; left
         BLEQ    leftArrow
+
+        LDR     r2, =clarrow
+        CMP     r0, r2   ; left ctrl
+        BLEQ    homeLine
 
         LDR     r2, =rarrow
         CMP     r0, r2   ; right
@@ -1372,8 +1813,8 @@ kinsert EQU     &1CD
 
         CMP     r0, #127    ; DELETE
         BNE     %083
-        BL       rightArrow
-        BL       delKeyPress
+        BL      rightArrow
+        BL      delKeyPress
 
 083     CMP     r0, #08     ; BACK SPACE
         BLEQ    delKeyPress
@@ -1405,7 +1846,9 @@ kinsert EQU     &1CD
 
         BL      displayLines
         BL      displayCursor
+        BL      statusBar
         BL      toScreen
+
         BL      refreshWindow
 
 
@@ -1460,8 +1903,6 @@ OnRedraw
         Pull    "r0-r2", EQ
         BEQ     qquit
         MOV     r2, #0
-       ; MOV     r0, #&13
-       ; SWI     OS_Byte
         BL      plotSpriteInPoll
 
 nextrect
